@@ -1,7 +1,7 @@
-import { assign, createActor, setup, fromPromise } from "xstate"; // fromPromise is to wrap async functions as xstate actors
+import { assign, createActor, setup, fromPromise } from "xstate"; // fromPromise is to wrap async functions 
 import { speechstate } from "speechstate";
 import type { Settings } from "speechstate";
-import type { DMEvents, DMContext, Message } from "./types"; // Message[] was the full structure of a single conversation message, array of chat history
+import type { DMEvents, DMContext, Message } from "./types"; // msg [] 
 import { KEY } from "./azure";
 import { fetchChatCompletion } from "./ollama";
 
@@ -32,15 +32,15 @@ const dmMachine = setup({
       context.spstRef.send({
         type: "SPEAK",
         value: { utterance: (event as any).value || context.messages[context.messages.length - 1].content },
-      }), // (event as any).value => if event has a value, use it ; || => otherwise (if there is no event value) ; context.messages[context.messages.length - 1].content => use last message
+      }), // (event as any).value => if there is a value, use it 
     sst_listen: ({ context }) => 
       context.spstRef.send({ type: "LISTEN" }),
   },
   actors: {
-    chatCompletion: fromPromise( // to call ollama API to get LM response
-      async ({ input }: { input: { messages: Message[] } }) => { // the async function that receives input, returns response ; input.messages => full conversation history
-        const response = await fetchChatCompletion(input.messages); // calling our fetchChatCompletion function from ollama.ts ; await for ollama to respond (around 3 seconds)
-        return response; // event.output
+    chatCompletion: fromPromise( // ollama API for response
+      async ({ input }: { input: { messages: Message[] } }) => { // full conversation history
+        const response = await fetchChatCompletion(input.messages); // calling from ollama
+        return response; // output
       }),
   },
 }).createMachine({
@@ -48,13 +48,13 @@ const dmMachine = setup({
   context: ({ spawn }) => ({
     spstRef: spawn(speechstate, { input: settings }),
     lastResult: "",
-    messages: [ // there is one more role, user, that its content will be appended to the array after the ASR
+    messages: [ // an extra role
       {
-        role: "system", // we instruct the LM how to act
+        role: "system", // how LLM acts
         content: "You are a voice assistant. You are very good at a lot of things. Keep your responses very brief please. Say 'That is all, sir.' after every text generation."
       },      
       {
-        role: "assistant", // LLM's first message
+        role: "assistant", // LLM's answ
         content: "Hello! How can I help you?"        
       }
     ],
@@ -64,62 +64,62 @@ const dmMachine = setup({
     Prepare: {
       entry: "sst_prepare",
       on: {
-        ASRTTS_READY: "Loop", // when we receive ASRTTS_READY event, we transition to "Loop" state  
+        ASRTTS_READY: "Loop", // move 
       },
     },
     Loop: {
       initial: "Speaking",
       states: {
         Speaking: {
-          entry: ({ context }) => { // we get the context and
-            const lastMessage = context.messages[context.messages.length - 1]; // get the last message from the Messages[] array ; context.messages.length - 1 is the index of last message ; which will be the assistant line
-            if (lastMessage.role === "assistant") { // the system should only speak if it is an assistant message
-              context.spstRef.send({ // and we tell speechstate to speak this message
+          entry: ({ context }) => { // get context
+            const lastMessage = context.messages[context.messages.length - 1]; // last msg
+            if (lastMessage.role === "assistant") { // system may speak
+              context.spstRef.send({ // speak it 
                 type: "SPEAK",
                 value: { utterance: lastMessage.content },
               });
             }
           },
           on: {
-            SPEAK_COMPLETE: "Ask", // we transition to Ask state after the speech ends
+            SPEAK_COMPLETE: "Ask", // move to state
           },
         },
         Ask: {
           entry: "sst_listen",
           on: {
             RECOGNISED: {
-              actions: assign(({ context, event }) => { // when the speech is RECOGNISED, we update the context (utterance - last result)
-                const utterance = event.value[0]?.utterance || ""; // with the extracted text from the event.value.utterance property ; if undefined, we return empty string
+              actions: assign(({ context, event }) => { // context updated
+                const utterance = event.value[0]?.utterance || ""; // return part
                 return {
                   lastResult: utterance,
-                  messages: [ // then update the Messages[] array with user's message
-                    ...context.messages, // to keep all existing messages, we copy all existing ones and
-                    { role: "user" as const, content: utterance } // we append new user message
+                  messages: [ // update msg
+                    ...context.messages, 
+                    { role: "user" as const, content: utterance } 
                   ],
                 };
               }),
             },
-            LISTEN_COMPLETE: "ChatCompletion", // when listening finished, we transition into the state where we call the llm
+            LISTEN_COMPLETE: "ChatCompletion", // move to state
           },
         },
         ChatCompletion: {
-          invoke: { // we call the actor we defined earlier
+          invoke: { // earlier act
             src: "chatCompletion",
-            input: ({ context }) => ({ // we pass the full conversation history as input ; context.messages
-              messages: context.messages, // which, the actor will take as input.messages
+            input: ({ context }) => ({ // go through convrs
+              messages: context.messages, 
             }),
             onDone: {
-              target: "Speaking", // going back to Speaking state, and completing the loop
-              actions: assign(({ context, event }) => ({ // before transitioning, we want the string returned by fetchChatCompletion, it is located at event.output
-                messages: [ // we add assistant's response to the array with the same method as before, now the last element is the lm response, it will speak it
+              target: "Speaking", // go to speaking state
+              actions: assign(({ context, event }) => ({ 
+                messages: [ // assist answr
                   ...context.messages,
                   { role: "assistant" as const, content: event.output }
                 ],
               })),
             },
-            onError: { // if actor fails (ollama sometimes fails momentarily during the current loop, maybe due to network errors..)
-              target: "Speaking", // we go to speaking anyways, not letting it crash
-              actions: assign(({ context }) => ({ // and add an error message instead
+            onError: { 
+              target: "Speaking", 
+              actions: assign(({ context }) => ({ // error msg 
                 messages: [
                   ...context.messages,
                   { 
@@ -139,7 +139,7 @@ const dmActor = createActor(dmMachine, {}).start();
 dmActor.subscribe((state) => {
   console.group("State update");
   console.log("State value:", state.value);
-  console.log("Messages:", state.context.messages); // we also log the conversation
+  console.log("Messages:", state.context.messages); // 
   console.groupEnd();
 });
 export function setupButton(element: HTMLButtonElement) {
